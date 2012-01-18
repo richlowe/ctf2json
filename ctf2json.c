@@ -459,19 +459,23 @@ print_metadata(FILE *out)
 	now = time(NULL);
 	(void) fprintf(out, "\t{\n\t\t\"ctf2json_version\": \"%s\",\n\t\t\""
 	    "created_at\": "
-	    "%ld,\n\t\t\"derived_from\": \"%s\",\n\t\t\"ctf_version\": %d,"
-	    "\n\t\t\"requested_types\": [ ", JSON_FORMAT_VERSION, now, g_file,
-	    LIBCTF_VERSION);
+	    "%ld,\n\t\t\"derived_from\": \"%s\",\n\t\t\"ctf_version\": %d",
+	    JSON_FORMAT_VERSION, now, g_file, LIBCTF_VERSION);
 
-	last = list_tail(&g_types);
-	for (arg = list_head(&g_types); arg != NULL;
-	    arg = list_next(&g_types, arg)) {
-		(void) fprintf(out, "\"%s\" ", arg->a_arg);
-		if (arg != last)
-			(void) fprintf(out, ", ");
+	if (!list_is_empty(&g_types)) {
+		(void) fprintf(out, ",\n\t\t\"requested_types\": [ ");
+		last = list_tail(&g_types);
+		for (arg = list_head(&g_types); arg != NULL;
+		    arg = list_next(&g_types, arg)) {
+			(void) fprintf(out, "\"%s\" ", arg->a_arg);
+			if (arg != last)
+				(void) fprintf(out, ", ");
+		}
+
+		(void) fprintf(out, "]");
 	}
 
-	(void) fprintf(out, "]\n\t}");
+	(void) fprintf(out, "\n\t}");
 }
 
 static void
@@ -488,27 +492,40 @@ add_list_arg(list_t *list, const char *arg)
 	list_insert_tail(list, a);
 }
 
+static int
+each_type(ctf_id_t id, void *arg)
+{
+	ctf_file_t *fp = (ctf_file_t *)arg;
+
+	walk_type(fp, id);
+	return (0);
+}
+
 static void
 build_tree(ctf_file_t *fp)
 {
 	ctf_id_t id;
 	arg_t *arg;
 
-	for (arg = list_head(&g_types); arg != NULL;
-	    arg = list_next(&g_types, arg)) {
-		id = ctf_lookup_by_name(fp, arg->a_arg);
-		if (id < 0)
-			ctfdie(fp, "type not present in binary: %s",
-			    arg->a_arg);
+	if (list_is_empty(&g_types)) {
+		(void) ctf_type_iter(fp, each_type, fp);
+	} else {
+		for (arg = list_head(&g_types); arg != NULL;
+		    arg = list_next(&g_types, arg)) {
+			id = ctf_lookup_by_name(fp, arg->a_arg);
+			if (id < 0)
+				ctfdie(fp, "type not present in binary: %s",
+				    arg->a_arg);
 
-		walk_type(fp, id);
+			walk_type(fp, id);
+		}
 	}
 }
 
 static void
 usage(void)
 {
-	(void) fprintf(stderr, "Usage: %s -f file [ -f file ...] -t type "
+	(void) fprintf(stderr, "Usage: %s -f file [ -f file ...] "
 	    "[-t type ...]\n\n", g_prog);
 	(void) fprintf(stderr, "\t-f  use file for CTF data\n");
 	(void) fprintf(stderr, "\t-t  dump CTF data for type\n");
@@ -556,9 +573,6 @@ main(int argc, char **argv)
 
 	if (g_file == NULL)
 		die("missing required -f option\n");
-
-	if (list_is_empty(&g_types))
-		die("missing required -t option\n");
 
 	(void) ctf_version(LIBCTF_VERSION);
 	ctfp = ctf_open(g_file, &errp);

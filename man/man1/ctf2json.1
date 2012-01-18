@@ -11,7 +11,7 @@ ctf2json \- dump CTF type data to JSON
 
 .SH SYNOPSIS
 \fBctf2json\fR \fB-f\fR \fBfile\fR  [ \fB-f\fR \fBfile\fR ... ] 
-   \fB-t\fR \fBtype\fR [ \fB-t\fR \fBtype\fR ... ] 
+   [ \fB-t\fR \fBtype\fR ... ] 
 
 .SH DESCRIPTION
 
@@ -87,6 +87,8 @@ CTF information of which is needed to complete the first.
 Specify a type that should be emitted as JSON data. This option can be specified
 multiple times. As a part of specifying -t all the types that are required to
 describe the specified type will be emitted.
+
+If -t is not specified, all types will be emitted.
 .RE
 
 .SH JSON FORMAT
