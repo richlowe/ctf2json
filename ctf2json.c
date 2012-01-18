@@ -432,20 +432,26 @@ print_function(FILE *out, ctf_file_t *fp, ctf_id_t id)
 	    name);
 }
 
-
 static void
 print_tree(ctf_file_t *fp, avl_tree_t *avl)
 {
 	FILE *out = stdout;
-	visit_t *cur, *last;
+	visit_t *cur;
 	int kind;
+	int needcomma = 0;
 
 	cur = avl_first(avl);
-	last = avl_last(avl);
+
 	(void) fprintf(out, "\t[\n");
 	for (; cur != NULL; cur = AVL_NEXT(avl, cur)) {
 		kind = ctf_type_kind(fp, cur->v_id);
 		assert(kind != CTF_ERR);
+
+		if (kind == CTF_K_ARRAY)
+			continue;
+
+		if (needcomma++)
+			(void) fprintf(out, ",\n");
 
 		switch (kind) {
 		case CTF_K_INTEGER:
@@ -454,8 +460,6 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 		case CTF_K_FLOAT:
 			print_float(out, fp, cur->v_id);
 			break;
-		case CTF_K_ARRAY:
-			continue;
 		case CTF_K_POINTER:
 			print_pointer(out, fp, cur->v_id);
 			break;
@@ -479,9 +483,6 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 			    kind, cur->v_id);
 			break;
 		}
-
-		if (cur != last)
-			(void) fprintf(out, ",\n");
 	}
 
 	(void) fprintf(out, "\n\t]");
