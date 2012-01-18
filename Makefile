@@ -34,7 +34,7 @@ CFLAGS=-m64
 CPPFLAGS=-D_XOPEN_SOURCE=600 -D_LARGEFILE64_SOURCE
 GCFLAGS=-Wall -Wextra -pedantic -std=c99 -Wno-unused-parameter
 SCFLAGS=
-LIBS=-lctf -lavl
+LIBS=-lctf -lavl -lelf
 PROGNAME=ctf2json
 OBJS=ctf2json.o list.o
 CSTYLE=tools/cstyle

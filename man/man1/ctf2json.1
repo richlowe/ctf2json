@@ -3,14 +3,13 @@
 .\" The contents of this file are subject to the terms of the Common Development and Distribution License (the "License"). You may not use this file except in compliance with the License. You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE or http://www.opensolaris.org/os/licensing.
 .\" See the License for the specific language governing permissions and limitations under the License. When distributing Covered Code, include this CDDL HEADER in each file and include the License file at usr/src/OPENSOLARIS.LICENSE. If applicable, add the following below this CDDL HEADER, with the
 .\" fields enclosed by brackets "[]" replaced with your own identifying information: Portions Copyright [yyyy] [name of copyright owner]
-
 .TH ctf2json 1 "15 Sep 2011" "SunOS 5.11" "User Commands"
 
 .SH NAME
 ctf2json \- dump CTF type data to JSON
 
 .SH SYNOPSIS
-\fBctf2json\fR \fB-f\fR \fBfile\fR  [ \fB-f\fR \fBfile\fR ... ] 
+\fBctf2json\fR [ \fB-F\fR ] \fB-f\fR \fBfile\fR  [ \fB-f\fR \fBfile\fR ... ] 
    [ \fB-t\fR \fBtype\fR ... ] 
 
 .SH DESCRIPTION
@@ -38,6 +37,13 @@ data - An array of objects describing type information and typedefs.
 metadata - An object that contains various pieces of information about the
 generated data.
 .RE
+.RS +4
+.TP
+.ie t \(bu
+.el o
+functions - if -F was specified, an object that contains function argument and
+return type information.
+.RE
 
 The following is a sample data section:
 
@@ -49,6 +55,16 @@ The following is a sample data section:
                   { "name": "tv_nsec", "type": "long" }
           ] },
           { "name": "timespec_t", "typedef": "struct timespec" }
+        ]
+
+The following is a sample functions section:
+
+	[
+	  {"name": "ath_hal_malloc", "function": { "return": "void *",
+            "arguments": [
+              "size_t"
+            ] }
+          }
         ]
 
 For a full explanation of the JSON format see the section JSON FORMAT below.
@@ -74,6 +90,18 @@ data model will be used instead.
 Use this file as a source for CTF type data.   The first instance of this file
 is the "main" CTF object, additional instances specify additional objects, the
 CTF information of which is needed to complete the first.
+.RE
+
+.sp
+.ne 2
+.mk
+.na
+\fB\fB-F\fR\fR
+.ad
+.sp .6
+.RS 4n
+Emit an extra section in the output describing functions defined within the
+file, as well as types.  See the JSON FORMAT section for more information.
 .RE
 
 .sp
@@ -205,22 +233,16 @@ member.  Example:
 { "name": "foo", "enum": [{ "name": "F_FOO", "value": 0 }, { "name": 
 "F_BAR", "value": 1 }] },
 
+.RE
 
-.sp
-.ne2
-.mk
-.na
-\fB\fBpointer\fR\fR
-.ad
-.sp .6
-.RS 4n
-A C pointer, represented with one attribute, the type which is being pointed
-to.
+The functions section consists of an array of function objects.  Every object
+has a name property with the name of the function, a return property with the type of
+the function, and an arguments property which is an array containing the types
+of each argument, in argument order.
 
 Note, the type names are being provided by libctf. When dealing with an array it
 is always formatted with a space between the type name and the number of
 elements. e.g. "int [4]"
-.RE
 
 .SH EXIT STATUS
 .sp

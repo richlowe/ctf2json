@@ -36,6 +36,8 @@
 #include <assert.h>
 #include <time.h>
 #include <libgen.h>
+#include <libelf.h>
+#include <gelf.h>
 
 /*
  * <sys/avl.h> is a private header. It's a little naughty to go in and expose
@@ -156,6 +158,7 @@ walk_struct(ctf_file_t *fp, ctf_id_t id)
 {
 	(void) ctf_member_iter(fp, id, walk_struct_member, fp);
 }
+
 
 /*
  * Always attempt to resolve the type.
@@ -563,11 +566,116 @@ build_tree(ctf_file_t *fp)
 static void
 usage(void)
 {
-	(void) fprintf(stderr, "Usage: %s -f file [ -f file ...] "
+	(void) fprintf(stderr, "Usage: %s [-F] -f file [ -f file ...] "
 	    "[-t type ...]\n\n", g_prog);
 	(void) fprintf(stderr, "\t-f  use file for CTF data\n");
+	(void) fprintf(stderr, "\t-F  display information about functions\n");
 	(void) fprintf(stderr, "\t-t  dump CTF data for type\n");
 	exit(1);
+}
+
+static void
+print_functions(ctf_file_t *fp)
+{
+	Elf *elf;
+	Elf_Scn *scn = NULL;
+	Elf_Data *data = NULL;
+	GElf_Shdr shdr;
+	int fd, found = 0;
+	int needcomma = 0;
+
+	if (elf_version(EV_CURRENT) == EV_NONE)
+		die("mismatched libelf versions\n");
+
+	if ((fd = open(g_file, O_RDONLY)) == -1)
+		die("could not open %s\n", g_file);
+
+	if ((elf = elf_begin(fd, ELF_C_READ, NULL)) == NULL)
+		die("could not interpret ELF from %s\n",
+		    g_file);
+
+	while ((scn = elf_nextscn(elf, scn)) != NULL) {
+		(void) gelf_getshdr(scn, &shdr);
+
+		if (shdr.sh_type == SHT_SYMTAB) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (!found) {
+		(void) fprintf(stdout, "[]");
+		goto out;
+	}
+
+	(void) fprintf(stdout, "\t[\n");
+
+	data = elf_getdata(scn, NULL);
+
+	for (unsigned symdx = 0; symdx < (shdr.sh_size / shdr.sh_entsize);
+	    symdx++) {
+		GElf_Sym sym;
+		ctf_funcinfo_t finfo;
+		ctf_id_t *args = NULL;
+		char retname[CTF_TYPE_NAMELEN];
+
+		(void) gelf_getsym(data, symdx, &sym);
+
+		/* We only care about global functions */
+		if ((GELF_ST_TYPE(sym.st_info) != STT_FUNC) ||
+		    GELF_ST_BIND(sym.st_info) != STB_GLOBAL)
+			continue;
+
+		if (ctf_func_info(fp, symdx, &finfo) == CTF_ERR) {
+			/*
+			 * I'd like to check for ECTF_NOFUNCDAT and error
+			 * otherwise but the error codes are hidden in
+			 * ctf_impl.h, in an enum so you can't even safely
+			 * crib the value
+			 */
+			continue;
+		}
+
+		if (needcomma++)
+			(void) fprintf(stdout, ",\n");
+
+		if ((args = malloc(sizeof (ctf_id_t) * finfo.ctc_argc)) == NULL)
+			die("could not allocate memory\n");
+
+		if (ctf_func_args(fp, symdx, finfo.ctc_argc, args) == CTF_ERR)
+			ctfdie(fp, "could not lookup arguments for %s",
+			    elf_strptr(elf, shdr.sh_link, sym.st_name));
+
+		if (ctf_type_name(fp, finfo.ctc_return, retname,
+		    sizeof (retname)) == NULL)
+			ctfdie(fp, "failed to get name of type %ld",
+			    finfo.ctc_return);
+
+		(void) fprintf(stdout, "\t\t{ \"name\": \"%s\", \"function\": "
+		    "{ \"return\": \"%s\", \"arguments\": [\n",
+		    elf_strptr(elf, shdr.sh_link, sym.st_name), retname);
+
+		for (unsigned i = 0; i < finfo.ctc_argc; i++) {
+			char argtype[CTF_TYPE_NAMELEN];
+
+			if (ctf_type_name(fp, args[i], argtype,
+			    sizeof (argtype)) == NULL)
+				ctfdie(fp, "failed to get name of type %ld",
+				    args[i]);
+
+			(void) fprintf(stdout, "\t\t\t\"%s\"%s\n", argtype,
+			    (i == (finfo.ctc_argc - 1)) ? "" : ",");
+		}
+
+		(void) fprintf(stdout, "\t\t] } }");
+
+		free(args);
+	}
+	(void) fprintf(stdout, "\n\t]");
+
+out:
+	(void) elf_end(elf);
+	(void) close(fd);
 }
 
 int
@@ -576,6 +684,7 @@ main(int argc, char **argv)
 	int errp, c;
 	ctf_file_t *ctfp, *pctfp;
 	list_t files;
+	int showfuncs = 0;
 
 	g_prog = basename(argv[0]);
 	avl_create(&g_visited, visited_compare, sizeof (visit_t), 0);
@@ -586,7 +695,7 @@ main(int argc, char **argv)
 	if (argc == 1)
 		usage();
 
-	while ((c = getopt(argc, argv, "t:f:")) != EOF) {
+	while ((c = getopt(argc, argv, "Ft:f:")) != EOF) {
 		switch (c) {
 		case 'f':
 			/*
@@ -597,6 +706,9 @@ main(int argc, char **argv)
 				g_file = optarg;
 			else
 				add_list_arg(&files, optarg);
+			break;
+		case 'F':
+			showfuncs = 1;
 			break;
 		case 't':
 			add_list_arg(&g_types, optarg);
@@ -647,6 +759,10 @@ main(int argc, char **argv)
 	print_metadata(stdout);
 	(void) fprintf(stdout, ",\n\"data\":\n");
 	print_tree(ctfp, &g_visited);
+	if (showfuncs) {
+		(void) fprintf(stdout, ",\n\"functions\":\n");
+		print_functions(ctfp);
+	}
 	(void) fprintf(stdout, "\n}\n");
 
 	exit(0);
