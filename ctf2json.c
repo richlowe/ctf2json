@@ -59,7 +59,6 @@
 typedef struct visit {
 	avl_node_t	v_link;			/* list link */
 	ctf_id_t	v_id;			/* id of this node */
-	ctf_id_t	v_tdn;			/* id of what we point to */
 } visit_t;
 
 typedef struct psm_cb {
@@ -162,13 +161,12 @@ walk_struct(ctf_file_t *fp, ctf_id_t id)
  * Always attempt to resolve the type.
  */
 static void
-walk_type(ctf_file_t *fp, ctf_id_t oid)
+walk_type(ctf_file_t *fp, ctf_id_t id)
 {
 	int kind;
-	ctf_id_t id;
 	visit_t search, *found;
 
-	search.v_id = oid;
+	search.v_id = id;
 	found = avl_find(&g_visited, &search, NULL);
 	if (found != NULL)
 		return;
@@ -184,34 +182,19 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	found = malloc(sizeof (visit_t));
 	if (found == NULL)
 		die("Failed to malloc\n");
-	found->v_id = oid;
-	found->v_tdn = -1;
+	found->v_id = id;
 	avl_add(&g_visiting, found);
 
-	if ((id = ctf_type_resolve(fp, oid)) == CTF_ERR)
-		ctfdie(fp, "could not resolve type %ld", oid);
-
-	search.v_id = id;
-	found = avl_find(&g_visited, &search, NULL);
-	if (found != NULL) {
-		found = malloc(sizeof (visit_t));
-		if (found == NULL)
-			die("Failed to malloc\n");
-		found->v_id = oid;
-		found->v_tdn = id;
-		avl_add(&g_visited, found);
-		return;
-	}
-
-	kind = ctf_type_kind(fp, id);
+	if ((kind = ctf_type_kind(fp, id)) == CTF_ERR)
+		ctfdie(fp, "could not determine kind of type %ld", id);
 
 	/*
 	 * There are three different classes of types that we need to concern
 	 * ourselves with here.
 	 *
-	 *  - Basic types with no aditional resolution. (ints, floats, etc.)
-	 *  - Types that we never should deal with (forward, typdef, etc.)
-	 *  - Types that we need to look further at (arrays and structs.)
+	 *  - Basic types with no aditional resolution. (ints, floats)
+	 *  - Types that we never should deal with (const, volatile)
+	 *  - Types that we need to look further at (arrays, structs, unions)
 	 */
 	switch (kind) {
 	case CTF_K_ARRAY:
@@ -221,6 +204,7 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_STRUCT:
 		walk_struct(fp, id);
 		break;
+	case CTF_K_TYPEDEF:
 	case CTF_K_POINTER:
 		walk_type(fp, ctf_type_reference(fp, id));
 		break;
@@ -228,13 +212,13 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_INTEGER:
 	case CTF_K_FLOAT:
 	case CTF_K_ENUM:
+		break;
 	case CTF_K_FORWARD:
 	case CTF_K_UNKNOWN:
-		break;
-	case CTF_K_TYPEDEF:
 	case CTF_K_VOLATILE:
 	case CTF_K_CONST:
 	case CTF_K_RESTRICT:
+		goto out;
 	default:
 		die("unknown or unresolved CTF kind for id %ld: %d\n", id,
 		    kind);
@@ -245,21 +229,9 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	if (found == NULL)
 		die("Failed to malloc\n");
 	found->v_id = id;
-	found->v_tdn = -1;
 	avl_add(&g_visited, found);
-
-	/* Already done, no need to add parent */
-	if (oid == id)
-		return;
-
-	found = malloc(sizeof (visit_t));
-	if (found == NULL)
-		die("Failed to malloc\n");
-	found->v_id = oid;
-	found->v_tdn = id;
-	avl_add(&g_visited, found);
-
-	search.v_id = oid;
+out:
+	search.v_id = id;
 	if ((found = avl_find(&g_visiting, &search, NULL)) != NULL)
 		avl_remove(&g_visiting, found);
 }
@@ -432,14 +404,17 @@ print_enum(FILE *out, ctf_file_t *fp, ctf_id_t id)
 }
 
 static void
-print_typedef(FILE *out, ctf_file_t *fp, ctf_id_t idf, ctf_id_t idt)
+print_typedef(FILE *out, ctf_file_t *fp, ctf_id_t id)
 {
 	char from[CTF_TYPE_NAMELEN], to[CTF_TYPE_NAMELEN];
+	ctf_id_t sub = 0;
 
-	if (ctf_type_name(fp, idf, from, sizeof (from)) == NULL)
-		ctfdie(fp, "failed to get name of type %ld", idf);
-	if (ctf_type_name(fp, idt, to, sizeof (to)) == NULL)
-		ctfdie(fp, "failed to get name of type %ld", idt);
+	sub = ctf_type_reference(fp, id);
+
+	if (ctf_type_name(fp, id, from, sizeof (from)) == NULL)
+		ctfdie(fp, "failed to get name of type %ld", id);
+	if (ctf_type_name(fp, sub, to, sizeof (to)) == NULL)
+		ctfdie(fp, "failed to get name of type %ld", sub);
 
 	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"typedef\": \"%s\" }",
 	    from, to);
@@ -469,50 +444,46 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 	last = avl_last(avl);
 	(void) fprintf(out, "\t[\n");
 	for (; cur != NULL; cur = AVL_NEXT(avl, cur)) {
-		if (cur->v_tdn != -1) {
-			print_typedef(out, fp, cur->v_id, cur->v_tdn);
-		} else {
+		kind = ctf_type_kind(fp, cur->v_id);
+		assert(kind != CTF_ERR);
 
-			kind = ctf_type_kind(fp, cur->v_id);
-			assert(kind != CTF_ERR);
-
-			switch (kind) {
-			case CTF_K_INTEGER:
-				print_int(out, fp, cur->v_id);
-				break;
-			case CTF_K_FLOAT:
-				print_float(out, fp, cur->v_id);
-				break;
-			case CTF_K_ARRAY:
-				continue;
-			case CTF_K_POINTER:
-				print_pointer(out, fp, cur->v_id);
-				break;
-			case CTF_K_STRUCT:
-				print_struct(out, fp, cur->v_id);
-				break;
-			case CTF_K_UNION:
-				print_union(out, fp, cur->v_id);
-				break;
-			case CTF_K_ENUM:
-				print_enum(out, fp, cur->v_id);
-				break;
-			case CTF_K_FUNCTION:
-				print_function(out, fp, cur->v_id);
-				break;
-			case CTF_K_UNKNOWN:
-			case CTF_K_FORWARD:
-				continue;
-			default:
-				die("Unimplemented kind. kind/id:  %d %ld\n",
-				    kind, cur->v_id);
-				break;
-			}
+		switch (kind) {
+		case CTF_K_INTEGER:
+			print_int(out, fp, cur->v_id);
+			break;
+		case CTF_K_FLOAT:
+			print_float(out, fp, cur->v_id);
+			break;
+		case CTF_K_ARRAY:
+			continue;
+		case CTF_K_POINTER:
+			print_pointer(out, fp, cur->v_id);
+			break;
+		case CTF_K_STRUCT:
+			print_struct(out, fp, cur->v_id);
+			break;
+		case CTF_K_UNION:
+			print_union(out, fp, cur->v_id);
+			break;
+		case CTF_K_ENUM:
+			print_enum(out, fp, cur->v_id);
+			break;
+		case CTF_K_FUNCTION:
+			print_function(out, fp, cur->v_id);
+			break;
+		case CTF_K_TYPEDEF:
+			print_typedef(out, fp, cur->v_id);
+			break;
+		default:
+			die("Unimplemented kind. kind/id:  %d %ld\n",
+			    kind, cur->v_id);
+			break;
 		}
 
 		if (cur != last)
 			(void) fprintf(out, ",\n");
 	}
+
 	(void) fprintf(out, "\n\t]");
 }
 
@@ -646,17 +617,27 @@ main(int argc, char **argv)
 		die("failed to ctf_open file: %s: %s\n", g_file,
 		    ctf_errmsg(errp));
 
-	for (arg_t *arg = list_head(&files); arg != NULL;
-	    arg = list_next(&files, arg)) {
-		if ((pctfp = ctf_open(arg->a_arg, &errp)) == NULL)
-			die("failed to ctf_open parent file: %s\n",
-			    arg->a_arg);
+	if (!list_is_empty(&files)) {
+		if (ctf_parent_name(ctfp) == NULL) {
+			(void) fprintf(stderr, "%s: warning: %s has no "
+			    "parent module, but parents are specified\n",
+			    g_prog, g_file);
+		} else {
+			for (arg_t *arg = list_head(&files); arg != NULL;
+			    arg = list_next(&files, arg)) {
+				pctfp = ctf_open(arg->a_arg, &errp);
+				if (pctfp == NULL)
+					die("failed to ctf_open file: %s: %s\n",
+					    arg->a_arg,
+					    ctf_errmsg(errp));
 
-		if (ctf_import(ctfp, pctfp) == CTF_ERR)
-			die("failed to import parent CTF: %s\n",
-			    ctf_errmsg(ctf_errno(ctfp)));
+				if (ctf_import(ctfp, pctfp) == CTF_ERR)
+					die("failed to import parent CTF: %s\n",
+					    ctf_errmsg(ctf_errno(ctfp)));
 
-		ctf_close(pctfp);
+				ctf_close(pctfp);
+			}
+		}
 	}
 
 	build_tree(ctfp);
