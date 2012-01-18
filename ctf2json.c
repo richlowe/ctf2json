@@ -102,6 +102,21 @@ vwarn(const char *format, va_list alist)
 	(void) vfprintf(stderr, format, alist);
 }
 
+/*PRINTFLIKE2*/
+static void
+ctfdie(ctf_file_t *fp, const char *format, ...)
+{
+	va_list ap;
+
+	va_start(ap, format);
+	vwarn(format, ap);
+
+	(void) fputs(": ", stderr);
+	(void) fprintf(stderr, "%s\n", ctf_errmsg(ctf_errno(fp)));
+	va_end(ap);
+	exit(1);
+}
+
 /*PRINTFLIKE1*/
 static void
 die(const char *format, ...)
@@ -122,7 +137,7 @@ walk_array(ctf_file_t *fp, ctf_id_t id)
 {
 	ctf_arinfo_t arp;
 	if (ctf_array_info(fp, id, &arp) != 0)
-		die("failed to read array information\n");
+		ctfdie(fp, "failed to read array information");
 	walk_type(fp, arp.ctr_contents);
 }
 
@@ -232,9 +247,10 @@ print_int(FILE *out, ctf_file_t *fp, ctf_id_t id)
 	ctf_encoding_t ep;
 
 	if (ctf_type_encoding(fp, id, &ep) != 0)
-		die("failed to read integer type encoding\n");
+		ctfdie(fp, "failed to read integer type encoding for %ld",
+		    id);
 	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
-		die("failed to get name of type %ld\n", id);
+		ctfdie(fp, "failed to get name of type %ld", id);
 
 	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"integer\": { "
 	    "\"length\": %d, \"signed\": %s } }", name, ep.cte_bits / 8,
@@ -248,9 +264,10 @@ print_float(FILE *out, ctf_file_t *fp, ctf_id_t id)
 	ctf_encoding_t ep;
 
 	if (ctf_type_encoding(fp, id, &ep) != 0)
-		die("failed to read integer type encoding\n");
+		ctfdie(fp, "failed to read float type encoding for %ld",
+		    id);
 	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
-		die("failed to get name of type %ld\n", id);
+		ctfdie(fp, "failed to get name of type %ld", id);
 
 	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"float\": { "
 	    "\"length\": %d } }", name, ep.cte_bits / 8);
@@ -264,7 +281,7 @@ print_struct_member(const char *name, ctf_id_t id, ulong_t off, void *arg)
 	char type[CTF_TYPE_NAMELEN];
 
 	if (ctf_type_name(cb->psm_fp, id, type, sizeof (type)) == NULL)
-		die("failed to get name of type %ld\n", id);
+		ctfdie(cb->psm_fp, "failed to get name of type %ld", id);
 	(void) fprintf(cb->psm_out, "\t\t\t{ \"name\": \"%s\", \"type\": "
 	    "\"%s\" }",
 	    name, type);
@@ -282,7 +299,7 @@ print_struct(FILE *out, ctf_file_t *fp, ctf_id_t id)
 	psm_cb_t cb;
 
 	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
-		die("failed to get name of type %ld\n", id);
+		ctfdie(fp, "failed to get name of type %ld", id);
 
 	cb.psm_fp = fp;
 	cb.psm_out = out;
@@ -299,9 +316,9 @@ print_typedef(FILE *out, ctf_file_t *fp, ctf_id_t idf, ctf_id_t idt)
 	char from[CTF_TYPE_NAMELEN], to[CTF_TYPE_NAMELEN];
 
 	if (ctf_type_name(fp, idf, from, sizeof (from)) == NULL)
-		die("failed to get name of type %ld\n", idf);
+		ctfdie(fp, "failed to get name of type %ld", idf);
 	if (ctf_type_name(fp, idt, to, sizeof (to)) == NULL)
-		die("failed to get name of type %ld\n", idt);
+		ctfdie(fp, "failed to get name of type %ld", idt);
 
 	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"typedef\": \"%s\" }",
 	    from, to);
@@ -398,7 +415,8 @@ build_tree(ctf_file_t *fp)
 	    arg = list_next(&g_types, arg)) {
 		id = ctf_lookup_by_name(fp, arg->a_arg);
 		if (id < 0)
-			die("type not present in binary: %s\n", arg->a_arg);
+			ctfdie(fp, "type not present in binary: %s",
+			    arg->a_arg);
 
 		walk_type(fp, id);
 	}
@@ -454,7 +472,8 @@ main(int argc, char **argv)
 	(void) ctf_version(LIBCTF_VERSION);
 	ctfp = ctf_open(g_file, &errp);
 	if (ctfp == NULL)
-		die("failed to ctf_open file: %s\n", g_file);
+		die("failed to ctf_open file: %s: %s\n", g_file,
+		    ctf_errmsg(errp));
 
 	build_tree(ctfp);
 
