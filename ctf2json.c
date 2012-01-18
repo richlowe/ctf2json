@@ -210,7 +210,7 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	 * ourselves with here.
 	 *
 	 *  - Basic types with no aditional resolution. (ints, floats, etc.)
-	 *  - Types that we never should dwal with (forward, typdef, etc.)
+	 *  - Types that we never should deal with (forward, typdef, etc.)
 	 *  - Types that we need to look further at (arrays and structs.)
 	 */
 	switch (kind) {
@@ -227,9 +227,9 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_INTEGER:
 	case CTF_K_FLOAT:
 	case CTF_K_ENUM:
+	case CTF_K_FORWARD:
 		break;
 	case CTF_K_UNKNOWN:
-	case CTF_K_FORWARD:
 	case CTF_K_TYPEDEF:
 	case CTF_K_VOLATILE:
 	case CTF_K_CONST:
@@ -484,6 +484,8 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 			case CTF_K_ENUM:
 				print_enum(out, fp, cur->v_id);
 				break;
+			case CTF_K_FORWARD:
+				continue;
 			default:
 				die("Unimplemented kind. kind/id:  %d %ld\n",
 				    kind, cur->v_id);
