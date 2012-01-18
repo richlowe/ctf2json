@@ -168,6 +168,25 @@ Example:
 { "name": "struct timespec", "struct": [ { "name": "tv_sec", "type":
 "time_t" }, { "name": "tv_nsec", "type": "long" } ] },
 
+
+.sp
+.ne 2
+.mk
+.na
+\fB\fBunion\fR\fR
+.ad
+.sp .6
+.RS 4n
+A C union is represented by an array of objects. The array is ordered based on
+the order of the members in the union. Each entry in the array has two fields.
+\fBname\fR is the name of the structure member. \fBtype\fR is the name of the
+type of that member. The type is guaranteed to have been enumerated already.
+Example:
+
+{ "name": "foo", "union": [{ "name": "a", "type": "uint64_t [256]" }
+{ "name": "s", "type": "struct " }] },
+
+
 .sp
 .ne2
 .mk

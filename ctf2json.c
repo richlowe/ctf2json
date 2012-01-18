@@ -217,6 +217,7 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_ARRAY:
 		walk_array(fp, id);
 		break;
+	case CTF_K_UNION:
 	case CTF_K_STRUCT:
 		walk_struct(fp, id);
 		break;
@@ -225,7 +226,6 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 		break;
 	case CTF_K_INTEGER:
 	case CTF_K_FLOAT:
-	case CTF_K_UNION:
 	case CTF_K_ENUM:
 		break;
 	case CTF_K_UNKNOWN:
@@ -366,6 +366,28 @@ print_struct(FILE *out, ctf_file_t *fp, ctf_id_t id)
 }
 
 static void
+print_union(FILE *out, ctf_file_t *fp, ctf_id_t id)
+{
+	char name[CTF_TYPE_NAMELEN];
+	psm_cb_t cb;
+	int n = 0;
+
+	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
+		die("failed to get name of type %ld\n", id);
+
+	(void) ctf_member_iter(fp, id, count_struct_members, &n);
+
+	cb.psm_fp = fp;
+	cb.psm_out = out;
+	cb.psm_count = 0;
+	cb.psm_size = n;
+
+	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"union\": [\n", name);
+	(void) ctf_member_iter(fp, id, print_struct_member, &cb);
+	(void) fprintf(out, "\t\t] }");
+}
+
+static void
 print_typedef(FILE *out, ctf_file_t *fp, ctf_id_t idf, ctf_id_t idt)
 {
 	char from[CTF_TYPE_NAMELEN], to[CTF_TYPE_NAMELEN];
@@ -411,6 +433,9 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 				break;
 			case CTF_K_STRUCT:
 				print_struct(out, fp, cur->v_id);
+				break;
+			case CTF_K_UNION:
+				print_union(out, fp, cur->v_id);
 				break;
 			default:
 				die("Unimplemented kind. kind/id:  %d %ld\n",
