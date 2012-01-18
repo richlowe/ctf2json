@@ -229,8 +229,8 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_FLOAT:
 	case CTF_K_ENUM:
 	case CTF_K_FORWARD:
-		break;
 	case CTF_K_UNKNOWN:
+		break;
 	case CTF_K_TYPEDEF:
 	case CTF_K_VOLATILE:
 	case CTF_K_CONST:
@@ -500,6 +500,7 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 			case CTF_K_FUNCTION:
 				print_function(out, fp, cur->v_id);
 				break;
+			case CTF_K_UNKNOWN:
 			case CTF_K_FORWARD:
 				continue;
 			default:
