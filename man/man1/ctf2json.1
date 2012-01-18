@@ -190,6 +190,23 @@ Example:
 
 
 .sp
+.ne 2
+.mk
+.na
+\fB\fBenum\fR\fR
+.ad
+.sp .6
+.RS 4n
+A C enum is represented by an array of objects. The array is ordered based on
+the values of the members in the enum. Each entry in the array has two fields.
+\fBname\fR is the name of the enum member. \vBalue\fR is the value of that
+member.  Example:
+
+{ "name": "foo", "enum": [{ "name": "F_FOO", "value": 0 }, { "name": 
+"F_BAR", "value": 1 }] },
+
+
+.sp
 .ne2
 .mk
 .na

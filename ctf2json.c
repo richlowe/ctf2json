@@ -387,6 +387,50 @@ print_union(FILE *out, ctf_file_t *fp, ctf_id_t id)
 	(void) fprintf(out, "\t\t] }");
 }
 
+/*ARGSUSED*/
+static int
+count_enum_members(const char *name, int value, void *arg)
+{
+	(*(int *)arg)++;
+	return (0);
+}
+
+static int
+print_enum_member(const char *name, int value, void *arg)
+{
+	psm_cb_t *cb = (psm_cb_t *)arg;
+
+	cb->psm_count++;
+
+	(void) fprintf(cb->psm_out, "\t\t\t{ \"name\": \"%s\", "
+	    "\"value\": %d }%s\n", name, value,
+	    (cb->psm_count < cb->psm_size) ? "," : "");
+
+	return (0);
+}
+
+static void
+print_enum(FILE *out, ctf_file_t *fp, ctf_id_t id)
+{
+	char name[CTF_TYPE_NAMELEN];
+	psm_cb_t cb;
+	int n = 0;
+
+	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
+		ctfdie(fp, "failed to get name of type %ld", id);
+
+	(void) ctf_enum_iter(fp, id, count_enum_members, &n);
+
+	cb.psm_fp = fp;
+	cb.psm_out = out;
+	cb.psm_size = n;
+	cb.psm_count = 0;
+
+	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"enum\": [\n", name);
+	(void) ctf_enum_iter(fp, id, print_enum_member, &cb);
+	(void) fprintf(out, "\t\t] }");
+}
+
 static void
 print_typedef(FILE *out, ctf_file_t *fp, ctf_id_t idf, ctf_id_t idt)
 {
@@ -436,6 +480,9 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 				break;
 			case CTF_K_UNION:
 				print_union(out, fp, cur->v_id);
+				break;
+			case CTF_K_ENUM:
+				print_enum(out, fp, cur->v_id);
 				break;
 			default:
 				die("Unimplemented kind. kind/id:  %d %ld\n",
