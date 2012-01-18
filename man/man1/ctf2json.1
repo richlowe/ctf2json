@@ -10,8 +10,8 @@
 ctf2json \- dump CTF type data to JSON
 
 .SH SYNOPSIS
-\fBctf2json\fR \fB-f\fR \fBfile\fR  \fB-t\fR \fBtype\fR
-[ \fB-t\fR \fBtype\fR ... ] 
+\fBctf2json\fR \fB-f\fR \fBfile\fR  [ \fB-f\fR \fBfile\fR ... ] 
+   \fB-t\fR \fBtype\fR [ \fB-t\fR \fBtype\fR ... ] 
 
 .SH DESCRIPTION
 
@@ -71,8 +71,9 @@ data model will be used instead.
 .ad
 .sp .6
 .RS 4n
-Use this file as the source for all CTF type data. This option can only be
-specified once.
+Use this file as a source for CTF type data.   The first instance of this file
+is the "main" CTF object, additional instances specify additional objects, the
+CTF information of which is needed to complete the first.
 .RE
 
 .sp

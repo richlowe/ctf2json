@@ -426,7 +426,7 @@ build_tree(ctf_file_t *fp)
 static void
 usage(void)
 {
-	(void) fprintf(stderr, "Usage: %s -f file -t type "
+	(void) fprintf(stderr, "Usage: %s -f file [ -f file ...] -t type "
 	    "[-t type ...]\n\n", g_prog);
 	(void) fprintf(stderr, "\t-f  use file for CTF data\n");
 	(void) fprintf(stderr, "\t-t  dump CTF data for type\n");
@@ -437,11 +437,13 @@ int
 main(int argc, char **argv)
 {
 	int errp, c;
-	ctf_file_t *ctfp;
+	ctf_file_t *ctfp, *pctfp;
+	list_t files;
 
 	g_prog = basename(argv[0]);
 	avl_create(&g_visited, visited_compare, sizeof (visit_t), 0);
 	list_create(&g_types, sizeof (arg_t), 0);
+	list_create(&files, sizeof (arg_t), 0);
 
 	if (argc == 1)
 		usage();
@@ -449,9 +451,14 @@ main(int argc, char **argv)
 	while ((c = getopt(argc, argv, "t:f:")) != EOF) {
 		switch (c) {
 		case 'f':
-			if (g_file != NULL)
-				die("-f can only be specified once\n");
-			g_file = optarg;
+			/*
+			 * The first file is _the_ file, subsequent are
+			 * antescedents
+			 */
+			if (g_file == NULL)
+				g_file = optarg;
+			else
+				add_list_arg(&files, optarg);
 			break;
 		case 't':
 			add_list_arg(&g_types, optarg);
@@ -475,6 +482,19 @@ main(int argc, char **argv)
 	if (ctfp == NULL)
 		die("failed to ctf_open file: %s: %s\n", g_file,
 		    ctf_errmsg(errp));
+
+	for (arg_t *arg = list_head(&files); arg != NULL;
+	    arg = list_next(&files, arg)) {
+		if ((pctfp = ctf_open(arg->a_arg, &errp)) == NULL)
+			die("failed to ctf_open parent file: %s\n",
+			    arg->a_arg);
+
+		if (ctf_import(ctfp, pctfp) == CTF_ERR)
+			die("failed to import parent CTF: %s\n",
+			    ctf_errmsg(ctf_errno(ctfp)));
+
+		ctf_close(pctfp);
+	}
 
 	build_tree(ctfp);
 
