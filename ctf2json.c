@@ -171,7 +171,8 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	if (found != NULL)
 		return;
 
-	id = ctf_type_resolve(fp, oid);
+	if ((id = ctf_type_resolve(fp, oid)) == CTF_ERR)
+		ctfdie(fp, "could not resolve type %ld", oid);
 
 	search.v_id = id;
 	found = avl_find(&g_visited, &search, NULL);
