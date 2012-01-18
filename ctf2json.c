@@ -74,6 +74,7 @@ typedef struct arg {
 } arg_t;
 
 static avl_tree_t g_visited;
+static avl_tree_t g_visiting;
 static list_t g_types;
 static const char *g_file;
 static const char *g_prog;
@@ -171,6 +172,21 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	if (found != NULL)
 		return;
 
+	found = avl_find(&g_visiting, &search, NULL);
+	if (found != NULL)
+		return;
+
+	/*
+	 * Mark node as being visited
+	 * We need this to prevent infinite recursion through pointers.
+	 */
+	found = malloc(sizeof (visit_t));
+	if (found == NULL)
+		die("Failed to malloc\n");
+	found->v_id = oid;
+	found->v_tdn = -1;
+	avl_add(&g_visiting, found);
+
 	if ((id = ctf_type_resolve(fp, oid)) == CTF_ERR)
 		ctfdie(fp, "could not resolve type %ld", oid);
 
@@ -203,9 +219,11 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_STRUCT:
 		walk_struct(fp, id);
 		break;
+	case CTF_K_POINTER:
+		walk_type(fp, ctf_type_reference(fp, id));
+		break;
 	case CTF_K_INTEGER:
 	case CTF_K_FLOAT:
-	case CTF_K_POINTER:
 	case CTF_K_UNION:
 	case CTF_K_ENUM:
 		break;
@@ -239,6 +257,10 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	found->v_id = oid;
 	found->v_tdn = id;
 	avl_add(&g_visited, found);
+
+	search.v_id = oid;
+	if ((found = avl_find(&g_visiting, &search, NULL)) != NULL)
+		avl_remove(&g_visiting, found);
 }
 
 static void
@@ -256,6 +278,25 @@ print_int(FILE *out, ctf_file_t *fp, ctf_id_t id)
 	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"integer\": { "
 	    "\"length\": %d, \"signed\": %s } }", name, ep.cte_bits / 8,
 	    ep.cte_format & CTF_INT_SIGNED ? "true" : "false");
+}
+
+static void
+print_pointer(FILE *out, ctf_file_t *fp, ctf_id_t id)
+{
+	char name[CTF_TYPE_NAMELEN];
+	char tname[CTF_TYPE_NAMELEN];
+	ctf_id_t subtype;
+
+	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
+		die("failed to get name of type %ld\n", id);
+
+	subtype = ctf_type_reference(fp, id);
+	if (ctf_type_name(fp, subtype, tname, sizeof (tname)) == NULL)
+		die("failed to get name of pointee type %ld\n",
+		    subtype);
+
+	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"pointer\": \"%s\" }",
+	    name, tname);
 }
 
 static void
@@ -352,6 +393,9 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 				break;
 			case CTF_K_ARRAY:
 				continue;
+			case CTF_K_POINTER:
+				print_pointer(out, fp, cur->v_id);
+				break;
 			case CTF_K_STRUCT:
 				print_struct(out, fp, cur->v_id);
 				break;
@@ -442,6 +486,7 @@ main(int argc, char **argv)
 
 	g_prog = basename(argv[0]);
 	avl_create(&g_visited, visited_compare, sizeof (visit_t), 0);
+	avl_create(&g_visiting, visited_compare, sizeof (visit_t), 0);
 	list_create(&g_types, sizeof (arg_t), 0);
 	list_create(&files, sizeof (arg_t), 0);
 

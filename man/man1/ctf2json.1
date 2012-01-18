@@ -168,6 +168,17 @@ Example:
 { "name": "struct timespec", "struct": [ { "name": "tv_sec", "type":
 "time_t" }, { "name": "tv_nsec", "type": "long" } ] },
 
+.sp
+.ne2
+.mk
+.na
+\fB\fBpointer\fR\fR
+.ad
+.sp .6
+.RS 4n
+A C pointer, represented with one attribute, the type which is being pointed
+to.
+
 Note, the type names are being provided by libctf. When dealing with an array it
 is always formatted with a space between the type name and the number of
 elements. e.g. "int [4]"
