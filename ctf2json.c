@@ -66,6 +66,7 @@ typedef struct psm_cb {
 	ctf_file_t	*psm_fp;
 	FILE		*psm_out;
 	size_t		psm_size;
+	unsigned int    psm_count;
 } psm_cb_t;
 
 typedef struct arg {
@@ -315,22 +316,30 @@ print_float(FILE *out, ctf_file_t *fp, ctf_id_t id)
 	    "\"length\": %d } }", name, ep.cte_bits / 8);
 }
 
+/*ARGSUSED*/
+static int
+count_struct_members(const char *name, ctf_id_t id, ulong_t off, void *arg)
+{
+	(*(int *)arg)++;
+	return (0);
+}
+
+/*ARGSUSED*/
 static int
 print_struct_member(const char *name, ctf_id_t id, ulong_t off, void *arg)
 {
-	ssize_t size;
 	psm_cb_t *cb = arg;
 	char type[CTF_TYPE_NAMELEN];
 
+	cb->psm_count++;
+
 	if (ctf_type_name(cb->psm_fp, id, type, sizeof (type)) == NULL)
 		ctfdie(cb->psm_fp, "failed to get name of type %ld", id);
+
 	(void) fprintf(cb->psm_out, "\t\t\t{ \"name\": \"%s\", \"type\": "
-	    "\"%s\" }",
-	    name, type);
-	size = ctf_type_size(cb->psm_fp, id);
-	if (size + off / 8 != cb->psm_size)
-		(void) fprintf(cb->psm_out, ",");
-	(void) fprintf(cb->psm_out, "\n");
+	    "\"%s\" }%s\n",
+	    name, type, (cb->psm_count < cb->psm_size) ? "," : "");
+
 	return (0);
 }
 
@@ -339,13 +348,17 @@ print_struct(FILE *out, ctf_file_t *fp, ctf_id_t id)
 {
 	char name[CTF_TYPE_NAMELEN];
 	psm_cb_t cb;
+	int n = 0;
 
 	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
 		ctfdie(fp, "failed to get name of type %ld", id);
 
+	(void) ctf_member_iter(fp, id, count_struct_members, &n);
+
 	cb.psm_fp = fp;
 	cb.psm_out = out;
-	cb.psm_size = ctf_type_size(fp, id);
+	cb.psm_count = 0;
+	cb.psm_size = n;
 
 	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"struct\": [\n", name);
 	(void) ctf_member_iter(fp, id, print_struct_member, &cb);
