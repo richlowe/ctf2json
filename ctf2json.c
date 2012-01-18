@@ -224,6 +224,7 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_POINTER:
 		walk_type(fp, ctf_type_reference(fp, id));
 		break;
+	case CTF_K_FUNCTION:
 	case CTF_K_INTEGER:
 	case CTF_K_FLOAT:
 	case CTF_K_ENUM:
@@ -234,7 +235,6 @@ walk_type(ctf_file_t *fp, ctf_id_t oid)
 	case CTF_K_VOLATILE:
 	case CTF_K_CONST:
 	case CTF_K_RESTRICT:
-	case CTF_K_FUNCTION:
 	default:
 		die("unknown or unresolved CTF kind for id %ld: %d\n", id,
 		    kind);
@@ -446,6 +446,19 @@ print_typedef(FILE *out, ctf_file_t *fp, ctf_id_t idf, ctf_id_t idt)
 }
 
 static void
+print_function(FILE *out, ctf_file_t *fp, ctf_id_t id)
+{
+	char name[CTF_TYPE_NAMELEN];
+
+	if (ctf_type_name(fp, id, name, sizeof (name)) == NULL)
+		ctfdie(fp, "failed to get name of type %ld", id);
+
+	(void) fprintf(out, "\t\t{ \"name\": \"%s\", \"function\": true }",
+	    name);
+}
+
+
+static void
 print_tree(ctf_file_t *fp, avl_tree_t *avl)
 {
 	FILE *out = stdout;
@@ -483,6 +496,9 @@ print_tree(ctf_file_t *fp, avl_tree_t *avl)
 				break;
 			case CTF_K_ENUM:
 				print_enum(out, fp, cur->v_id);
+				break;
+			case CTF_K_FUNCTION:
+				print_function(out, fp, cur->v_id);
 				break;
 			case CTF_K_FORWARD:
 				continue;
