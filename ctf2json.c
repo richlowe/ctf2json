@@ -574,15 +574,108 @@ usage(void)
 	exit(1);
 }
 
+typedef struct symtab_sym {
+	int ss_indx;
+	GElf_Sym ss_sym;
+	char *ss_name;
+} symtab_sym_t;
+
+
+static int
+print_funcsym(ctf_file_t *fp, symtab_sym_t *ss, int firstp)
+{
+	ctf_funcinfo_t finfo;
+	ctf_id_t *args = NULL;
+	char retname[CTF_TYPE_NAMELEN];
+
+	/* We only care about global functions */
+	if ((GELF_ST_TYPE(ss->ss_sym.st_info) != STT_FUNC) ||
+	    GELF_ST_BIND(ss->ss_sym.st_info) != STB_GLOBAL)
+		return (0);
+
+	if (ctf_func_info(fp, ss->ss_indx, &finfo) == CTF_ERR) {
+		/*
+		 * I'd like to check for ECTF_NOFUNCDAT and error
+		 * otherwise but the error codes are hidden in
+		 * ctf_impl.h, in an enum so you can't even safely
+		 * crib the value
+		 */
+		return (0);
+	}
+
+	if ((args = malloc(sizeof (ctf_id_t) * finfo.ctc_argc)) == NULL)
+		die("could not allocate memory\n");
+
+	if (ctf_func_args(fp, ss->ss_indx, finfo.ctc_argc, args) == CTF_ERR)
+		ctfdie(fp, "could not lookup arguments for %s", ss->ss_name);
+
+	if (ctf_type_name(fp, finfo.ctc_return, retname,
+	    sizeof (retname)) == NULL)
+		ctfdie(fp, "failed to get name of type %ld",
+		    finfo.ctc_return);
+
+	if (firstp == 0)
+		(void) fprintf(stdout, ",\n");
+
+	(void) fprintf(stdout, "\t\t{ \"name\": \"%s\", \"function\": "
+	    "{ \"return\": \"%s\", \"arguments\": [\n", ss->ss_name, retname);
+
+	for (unsigned i = 0; i < finfo.ctc_argc; i++) {
+		char argtype[CTF_TYPE_NAMELEN];
+
+		if (ctf_type_name(fp, args[i], argtype,
+		    sizeof (argtype)) == NULL)
+			ctfdie(fp, "failed to get name of type %ld",
+			    args[i]);
+
+		(void) fprintf(stdout, "\t\t\t\"%s\"%s\n", argtype,
+		    (i == (finfo.ctc_argc - 1)) ? "" : ",");
+	}
+
+	(void) fprintf(stdout, "\t\t] } }");
+
+	free(args);
+	return (1);
+}
+
+static int
+print_objtsym(ctf_file_t *fp, symtab_sym_t *ss, int firstp)
+{
+	ctf_id_t id;
+	char tname[CTF_TYPE_NAMELEN];
+
+	/* We only care about global functions */
+	if ((GELF_ST_TYPE(ss->ss_sym.st_info) != STT_OBJECT) ||
+	    (GELF_ST_BIND(ss->ss_sym.st_info) != STB_GLOBAL &&
+	    GELF_ST_BIND(ss->ss_sym.st_info) != STB_LOCAL))
+		return (0);
+
+	/* Some symbols legitimately won't have types, sadly */
+	if ((id = ctf_lookup_by_symbol(fp, ss->ss_indx)) == CTF_ERR)
+		return (0);
+
+	if (ctf_type_name(fp, id, tname, sizeof (tname)) == NULL)
+		ctfdie(fp, "failed to get name of type %ld", id);
+
+	if (firstp == 0)
+		(void) fprintf(stdout, ",\n");
+
+	(void) fprintf(stdout, "\t\t{ \"name\": \"%s\", \"type\": \"%s\" }",
+	    ss->ss_name, tname);
+
+	return (1);
+}
+
 static void
-print_functions(ctf_file_t *fp)
+walk_symtab(ctf_file_t *fp, int (*callback)(ctf_file_t *, symtab_sym_t *, int))
 {
 	Elf *elf;
 	Elf_Scn *scn = NULL;
 	Elf_Data *data = NULL;
 	GElf_Shdr shdr;
 	int fd, found = 0;
-	int needcomma = 0;
+	int firstp = 1;
+	symtab_sym_t ss;
 
 	if (elf_version(EV_CURRENT) == EV_NONE)
 		die("mismatched libelf versions\n");
@@ -614,62 +707,13 @@ print_functions(ctf_file_t *fp)
 
 	for (unsigned symdx = 0; symdx < (shdr.sh_size / shdr.sh_entsize);
 	    symdx++) {
-		GElf_Sym sym;
-		ctf_funcinfo_t finfo;
-		ctf_id_t *args = NULL;
-		char retname[CTF_TYPE_NAMELEN];
+		(void) gelf_getsym(data, symdx, &ss.ss_sym);
 
-		(void) gelf_getsym(data, symdx, &sym);
+		ss.ss_indx = symdx;
+		ss.ss_name = elf_strptr(elf, shdr.sh_link, ss.ss_sym.st_name);
 
-		/* We only care about global functions */
-		if ((GELF_ST_TYPE(sym.st_info) != STT_FUNC) ||
-		    GELF_ST_BIND(sym.st_info) != STB_GLOBAL)
-			continue;
-
-		if (ctf_func_info(fp, symdx, &finfo) == CTF_ERR) {
-			/*
-			 * I'd like to check for ECTF_NOFUNCDAT and error
-			 * otherwise but the error codes are hidden in
-			 * ctf_impl.h, in an enum so you can't even safely
-			 * crib the value
-			 */
-			continue;
-		}
-
-		if (needcomma++)
-			(void) fprintf(stdout, ",\n");
-
-		if ((args = malloc(sizeof (ctf_id_t) * finfo.ctc_argc)) == NULL)
-			die("could not allocate memory\n");
-
-		if (ctf_func_args(fp, symdx, finfo.ctc_argc, args) == CTF_ERR)
-			ctfdie(fp, "could not lookup arguments for %s",
-			    elf_strptr(elf, shdr.sh_link, sym.st_name));
-
-		if (ctf_type_name(fp, finfo.ctc_return, retname,
-		    sizeof (retname)) == NULL)
-			ctfdie(fp, "failed to get name of type %ld",
-			    finfo.ctc_return);
-
-		(void) fprintf(stdout, "\t\t{ \"name\": \"%s\", \"function\": "
-		    "{ \"return\": \"%s\", \"arguments\": [\n",
-		    elf_strptr(elf, shdr.sh_link, sym.st_name), retname);
-
-		for (unsigned i = 0; i < finfo.ctc_argc; i++) {
-			char argtype[CTF_TYPE_NAMELEN];
-
-			if (ctf_type_name(fp, args[i], argtype,
-			    sizeof (argtype)) == NULL)
-				ctfdie(fp, "failed to get name of type %ld",
-				    args[i]);
-
-			(void) fprintf(stdout, "\t\t\t\"%s\"%s\n", argtype,
-			    (i == (finfo.ctc_argc - 1)) ? "" : ",");
-		}
-
-		(void) fprintf(stdout, "\t\t] } }");
-
-		free(args);
+		if (callback(fp, &ss, firstp) == 1)
+			firstp = 0;
 	}
 	(void) fprintf(stdout, "\n\t]");
 
@@ -684,7 +728,7 @@ main(int argc, char **argv)
 	int errp, c;
 	ctf_file_t *ctfp, *pctfp;
 	list_t files;
-	int showfuncs = 0;
+	int showfuncs = 0, showvars = 0;
 
 	g_prog = basename(argv[0]);
 	avl_create(&g_visited, visited_compare, sizeof (visit_t), 0);
@@ -695,7 +739,7 @@ main(int argc, char **argv)
 	if (argc == 1)
 		usage();
 
-	while ((c = getopt(argc, argv, "Ft:f:")) != EOF) {
+	while ((c = getopt(argc, argv, "VFt:f:")) != EOF) {
 		switch (c) {
 		case 'f':
 			/*
@@ -709,6 +753,9 @@ main(int argc, char **argv)
 			break;
 		case 'F':
 			showfuncs = 1;
+			break;
+		case 'V':
+			showvars = 1;
 			break;
 		case 't':
 			add_list_arg(&g_types, optarg);
@@ -761,7 +808,11 @@ main(int argc, char **argv)
 	print_tree(ctfp, &g_visited);
 	if (showfuncs) {
 		(void) fprintf(stdout, ",\n\"functions\":\n");
-		print_functions(ctfp);
+		walk_symtab(ctfp, print_funcsym);
+	}
+	if (showvars) {
+		(void) fprintf(stdout, ",\n\"variables\":\n");
+		walk_symtab(ctfp, print_objtsym);
 	}
 	(void) fprintf(stdout, "\n}\n");
 
