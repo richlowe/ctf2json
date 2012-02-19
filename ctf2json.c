@@ -55,7 +55,7 @@
 
 #define	CTF_TYPE_NAMELEN	256		/* 2xDT_TYPE_NAMELEN */
 
-#define	JSON_FORMAT_VERSION	"1.0"
+#define	JSON_FORMAT_VERSION	"2.0"
 #define	LIBCTF_VERSION		CTF_VERSION_2
 
 typedef struct visit {
@@ -805,7 +805,7 @@ main(int argc, char **argv)
 
 	(void) fprintf(stdout, "{ \"metadata\":\n");
 	print_metadata(stdout);
-	(void) fprintf(stdout, ",\n\"data\":\n");
+	(void) fprintf(stdout, ",\n\"types\":\n");
 	print_tree(ctfp, &g_visited);
 	if (showfuncs) {
 		(void) fprintf(stdout, ",\n\"functions\":\n");

@@ -28,7 +28,7 @@ sections:
 .TP
 .ie t \(bu
 .el o
-data - An array of objects describing type information and typedefs.
+types - An array of objects describing type information and typedefs.
 .RE
 .RS +4
 .TP
@@ -44,8 +44,15 @@ generated data.
 functions - if -F was specified, an object that contains function argument and
 return type information.
 .RE
+.RS +4
+.TP
+.ie t \(bu
+.el o
+variables - if -V was specified, an objects that contains variable name and
+type information.
+.RE
 
-The following is a sample data section:
+The following is a sample type section:
 
         [
           { "name": "long", "integer": { "length": 4, "signed": true } },
@@ -67,8 +74,14 @@ The following is a sample functions section:
           }
         ]
 
-For a full explanation of the JSON format see the section JSON FORMAT below.
+The following is a sample variables section:
+	[
+		{ "name": "_nl_msg_cat_cntr", "type": "int" },
+		{ "name": "_sys_nsig", "type": "const int" },
+		{ "name": "_nl_domain_bindings", "type": "int *" }
+	]
 
+For a full explanation of the JSON format see the section JSON FORMAT below.
 
 The data model used is based upon the file passed in because the CTF data is
 specific to the data model. If the file is a 32-bit executable or shared object,
@@ -108,6 +121,18 @@ file, as well as types.  See the JSON FORMAT section for more information.
 .ne 2
 .mk
 .na
+\fB\fB-V\fR\fR
+.ad
+.sp .6
+.RS 4n
+Emit an extra section in the output describing variables defined within the
+file, as well as types.  See the JSON FORMAT section for more information.
+.RE
+
+.sp
+.ne 2
+.mk
+.na
 \fB\fB-t\fR\fR
 .ad
 .sp .6
@@ -121,17 +146,18 @@ If -t is not specified, all types will be emitted.
 
 .SH JSON FORMAT
 
-The current JSON object (version 1) contains a metadata section and a data
-section. The metadata section currently defines five different attributes. The
-first is \fBctf2json_version\fR - The version of the JSON file format used by
-\fBctf2json\fR. The current version is 1.0. \fBcreated_at\fR is the timestamp of
-when the file is being produced. This value is in seconds since 1970.
+The current JSON object (version 2) contains a metadata section a types
+section, and option functions and variables sections. The metadata section
+currently defines five different attributes. The first is
+\fBctf2json_version\fR - The version of the JSON file format used by
+\fBctf2json\fR. The current version is 1.0. \fBcreated_at\fR is the timestamp
+of when the file is being produced. This value is in seconds since 1970.
 \fBderived_from\fR is the name of the file that provided the CTF data.
 \fBctf_version\fR is the version of the CTF data that we received data from.
 \fBrequested_types\fR is an array. Each entry corresponds to a type requested
 via the \fB-t\fR option.
 
-The data section consists of an array of objects. Every object has a name
+The types section consists of an array of objects. Every object has a name
 section that describes the either name of a type or names a field inside a
 struct. Each object also contains a second key. The second key varies based upon
 what that type is.
@@ -269,9 +295,3 @@ An error occurred or invalid command line option was specified.
 
 .SH SEE ALSO
 libctf, ctfdump, node-ctype
-
-.SH BUGS
-
-Currently there are a few valid types in CTF which are not properly being
-supported. These include unions and pointers. This will be added in a future
-version with a rev to the JSON format minor version.
