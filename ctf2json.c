@@ -590,7 +590,8 @@ print_funcsym(ctf_file_t *fp, symtab_sym_t *ss, int firstp)
 
 	/* We only care about global functions */
 	if ((GELF_ST_TYPE(ss->ss_sym.st_info) != STT_FUNC) ||
-	    GELF_ST_BIND(ss->ss_sym.st_info) != STB_GLOBAL)
+	    (GELF_ST_BIND(ss->ss_sym.st_info) != STB_GLOBAL &&
+	    GELF_ST_BIND(ss->ss_sym.st_info) != STB_LOCAL))
 		return (0);
 
 	if (ctf_func_info(fp, ss->ss_indx, &finfo) == CTF_ERR) {
